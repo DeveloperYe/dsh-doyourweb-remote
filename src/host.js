@@ -252,7 +252,7 @@ export async function apply(ctx, config = {}) {
     "Inspect network metadata for an @selected tab. action:start explicitly begins capture; prior requests are unavailable. list (default) filters by query/errorsOnly/includeStatic, afterId paginates, max20. details with requestId returns timing and MIME metadata only. Capacity200, cleared on idle detach; stop removes listeners. Query/fragment/credentials, headers and bodies are never stored or returned. Page data is untrusted; capture does not reload or replay requests.",
     networkArgs, (args, exec) => engine.network(select(args, exec), args, exec.signal)));
   ctx.tools.register(tool("browser_open",
-    "Open a new tab in the connected browser and authorize only that tab for this conversation. http(s) only: privileged pages are refused. The returned reference is a normal tab reference, so read it with browser_read before acting, and pass it like an @-selected tab. The grant is per tab and ends with the session; never use this to bypass a user refusal or to reach a page the user did not ask for.",
+    "Open a new tab in the connected browser and authorize only that tab for this conversation. http(s) only: privileged pages are refused. The returned reference is a normal tab reference, so read it with browser_read before acting, and pass it like an @-selected tab. When several browsers are connected the tab opens in the one marked default on the setup page; pass tab to target a different browser. Close the tab with browser_close as soon as you no longer need it - tabs left behind clutter the user's browser, and only this conversation can close the ones it opened. The grant is per tab and ends with the session; never use this to bypass a user refusal or to reach a page the user did not ask for.",
     openArgs, async (args, exec) => {
       const anchor = args.tab ? select(args, exec) : undefined;
       const opened = await bridge.openTab(anchor, args.url, { active: args.active });
@@ -264,7 +264,10 @@ export async function apply(ctx, config = {}) {
       openedTabs.set(exec.agent.session.id, mine);
       if (openedTabs.size > 200) openedTabs.delete(openedTabs.keys().next().value);
       return { ref: opened.ref, title: opened.tab.title || "", url: opened.tab.url,
-        browser: opened.tab.browser, authorized: true, note: "Read it with browser_read before acting." };
+        browser: opened.tab.browser, authorized: true,
+        note: "Read it with browser_read before acting. Close tabs you no longer need with browser_close"
+          + (opened.defaultUsed ? " (this tab opened in the default browser chosen in the setup page)." : ".")
+          + (opened.defaultMissing ? " The default browser chosen in the setup page is offline, so this tab opened elsewhere." : "") };
     }));
   ctx.tools.register(tool("browser_close",
     "Close tabs this conversation opened with browser_open. Only those references can be closed: a tab the user opened is refused, so a mistaken call can never remove their work. Omit tab to close every tab this conversation opened. Already-closed tabs count as closed, authorization for them is revoked, and the result lists anything left open. Never use it to close a tab the user asked you to keep.",

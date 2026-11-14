@@ -69,7 +69,7 @@
 | 本地文件上传 | `browser_upload` 与批处理里的 `upload` / `drop`：支持隐藏 input、自定义文件选择器和跨域 iframe；文件走本地路径（`DOM.setFileInputFiles`），不向模型或扩展转发字节，且必须由你在本会话中给出绝对路径。 |
 | 元素拖拽 | 同一文档内 `drag`（源 → `toRef`/`toSelector`）与外部文件/MIME 数据 `drop`，两者都不会重放。 |
 | 关闭自己开的标签 | `browser_close`：只允许关闭**本会话用 browser_open 开的**标签，用户自己开的标签一律拒绝；不带 `tab` 就关掉本会话开过的全部，重复关闭视为成功，关闭后同步撤销授权。 |
-| 新建页面 | `browser_open`：在已连接的浏览器里新开一个 `http(s)` 标签页，并**只授权这一个新标签**（会话结束即失效）；返回的引用与 `@` 选中的标签等价，动作前先 `browser_read`。
+| 新建页面 | `browser_open`：在已连接的浏览器里新开一个 `http(s)` 标签页，并**只授权这一个新标签**（会话结束即失效）；返回的引用与 `@` 选中的标签等价，动作前先 `browser_read`。多台浏览器同时在线时，标签开在连接页里标为**默认**的那台（可在该页设置）；想指定别的浏览器就传 `tab`。用完请及时 `browser_close`。
 | 网络元数据 | `browser_network_requests` 需显式 `start`，最多保留 200 条，可按关键字/仅错误/静态资源过滤、分页、看详情；**不记录**查询串、凭据、请求头和正文，空闲释放即清空。 |
 | 链路诊断 | 每条命令记录 `host_send → extension_receive → api_settle → extension_response → host_response` 阶段与耗时，异常归类为 TIMEOUT / DISCONNECTED / PERMISSION / COMMAND_FAILED；可在「浏览器」侧边栏查看、导出或引用进对话。 |
 | 原生浏览器侧边栏 | 左导航「浏览器」面板：当前会话的网页、应用与诊断日志三个视图，引用直接追加到草稿，不自动发送。 |

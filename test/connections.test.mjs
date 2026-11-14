@@ -77,7 +77,7 @@ test("the setup page lists the connected browsers", async () => {
     assert.match(html, /已连接的浏览器/, "the table is rendered");
     assert.match(html, /Edge 141/, "the Edge instance is named with its version");
     assert.match(html, /Chrome 140/, "the Chrome instance is named");
-    assert.match(html, /多条记录说明装了好几份扩展/, "several rows explain what they mean");
+    assert.match(html, /多个浏览器同时在线时/, "several rows explain which browser browser_open uses");
     assert.equal(html.includes(bridge.manageSecret), false, "the page still never repeats the secret");
     one.close();
     two.close();

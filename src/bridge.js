@@ -87,6 +87,11 @@ export class BrowserBridge extends EventEmitter {
     this.relays = new Map();
     this.pending = new Map();
     this.detachments = new Map();
+    // Chosen on the setup page: which connected browser browser_open prefers when the caller names
+    // no tab. Kept beside pairing.json so it survives restarts without touching the DSH config.
+    this.preferencesFile = home ? path.join(home, "preferences.json") : undefined;
+    this.preferences = {};
+    this.preferencesWrite = Promise.resolve();
     this.idleTimeoutMs = idleTimeoutMs;
     this.pairings = new Pairings();
     // The management surface is gated by a secret that is never written into any
@@ -221,6 +226,10 @@ export class BrowserBridge extends EventEmitter {
       if (error.code !== "ENOENT") throw error;
       this.settings = { token: randomBytes(32).toString("hex") };
       await writeFile(settingsPath, JSON.stringify(this.settings), { mode: 0o600, flag: "wx" });
+    }
+    if (this.preferencesFile) {
+      try { this.preferences = JSON.parse(await readFile(this.preferencesFile, "utf8")) ?? {}; }
+      catch (error) { if (error.code !== "ENOENT") throw error; }
     }
     if (!/^[0-9a-f]{64}$/.test(this.settings.token ?? "")) {
       throw new Error("pairing.json has no usable token; delete it and restart the plugin to pair the extension again");
@@ -570,6 +579,7 @@ export class BrowserBridge extends EventEmitter {
     this.managementFailures.delete(request.socket?.remoteAddress || "unknown");
     if (pathname === "/manage/api" && request.method === "POST") return this.handleManagement(request, response);
     if (request.method === "POST" && pathname === "/setup/pair") return this.handlePairPost(request, response);
+    if (request.method === "POST" && pathname === "/setup/default") return this.handleDefaultPost(request, response);
     if (request.method !== "GET") { response.writeHead(405).end(); return; }
     if (pathname === "/manage") {
       const { html, nonce } = managementPage();
@@ -690,6 +700,21 @@ export class BrowserBridge extends EventEmitter {
     return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${refresh}<title>DSH DoYourWeb</title><style>
       *{box-sizing:border-box}body{margin:0;padding:48px 20px;font:14px/1.7 system-ui,"Microsoft YaHei",sans-serif;color:#253b38;background:#f2f5f3}main{max-width:780px;margin:auto}header{display:flex;align-items:center;gap:16px}.mark{width:48px;height:48px;display:grid;place-items:center;border-radius:14px;background:#1a6955;color:white;font-size:29px}.eyebrow{font-size:11px;letter-spacing:2px;color:#607d74;margin:0}h1{font-size:27px;letter-spacing:-.7px;margin:0}h2{font-size:17px;margin:0 0 6px}p{margin:6px 0 12px}.intro{margin:22px 0 28px;color:#596e68}.badge{margin-left:auto;white-space:nowrap;border:1px solid #d4ded9;padding:4px 11px;border-radius:20px;font-size:12px;color:#687a73}.online{background:#e0efe6;color:#176345;border-color:#c2ddcf}.card,.success{padding:24px;margin:16px 0;background:white;border:1px solid #dce5df;border-radius:16px;box-shadow:0 3px 12px #183c2605}.success{background:#e8f3ed;border-color:#bdd8c9}.step{display:flex;gap:16px}.step>div{min-width:0;flex:1}.number{flex-shrink:0;width:27px;height:27px;background:#eaf1ed;color:#36715c;border-radius:8px;text-align:center;font-weight:600}.actions{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0}.path{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#f5f7f5;border:1px solid #e5eae6;border-radius:9px}.path code{flex:1;min-width:0;overflow-wrap:anywhere;font:12px/1.5 ui-monospace,monospace}button{border:1px solid #d3ded6;background:white;color:#295b49;padding:8px 12px;border-radius:8px;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap}button:hover{background:#edf4ef;border-color:#9fbcaa}button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid #78b6a0;outline-offset:3px}.hint{color:#697b73;font-size:12px;margin-top:10px}ul{padding:0;list-style:none}.requests li{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 16px;background:#f5f8f5;border-radius:10px;margin:10px 0}.requests strong{font:600 20px ui-monospace,monospace;letter-spacing:2px}form{display:flex;gap:8px}button[value=allow]{background:#1b7156;color:white;border-color:#1b7156}button[value=deny]{color:#6a756d}.waiting{display:flex;align-items:center;gap:8px;padding:12px;background:#f6f8f6;border-radius:8px;color:#697b73}.dot{width:7px;height:7px;background:#9caf9d;border-radius:50%}details{color:#5e756a}details .step{margin-top:18px}summary{cursor:pointer}.help{padding:14px 4px}.help p{font-size:13px;margin:12px 0}footer{display:flex;justify-content:space-between;border-top:1px solid #dbe3dd;margin-top:22px;padding-top:16px;font-size:12px;color:#7c8c82}a{color:#356f57}kbd{border:1px solid #b8d0c3;border-radius:5px;padding:1px 6px;background:white}@media(max-width:520px){body{padding:24px 14px}h1{font-size:22px}.mark{display:none}.card,.success{padding:18px}.path{flex-direction:column;align-items:stretch}.step{gap:10px}.badge{font-size:11px}footer{gap:12px}}
       </style><body>${body}<script nonce="${nonce}">${script}</script></body></html>`;
+  }
+
+  /** Record which connected browser browser_open should prefer. Loopback and same-origin only. */
+  handleDefaultPost(request, response) {
+    if (!BrowserBridge.loopback(request)) { response.writeHead(403).end(); return; }
+    const sameOrigin = !request.headers["sec-fetch-site"] || request.headers["sec-fetch-site"] === "same-origin";
+    if (!sameOrigin) { response.writeHead(403).end(); return; }
+    let body = "";
+    request.on("data", chunk => { body += chunk; if (body.length > 4096) request.destroy(); });
+    request.on("end", () => {
+      const sourceId = new URLSearchParams(body).get("sourceId") ?? "";
+      this.setDefaultBrowser(sourceId)
+        .then(() => { response.writeHead(303, { Location: "/setup", "Cache-Control": "no-store" }).end(); })
+        .catch(error => this.failRequest(response, error));
+    });
   }
 
   handlePairPost(request, response) {
@@ -857,6 +882,30 @@ export class BrowserBridge extends EventEmitter {
     return { profile, tab, tabId };
   }
 
+  /** Which connected browser browser_open should prefer, as recorded on the setup page. */
+  get defaultBrowser() {
+    const sourceId = this.preferences?.defaultBrowser?.profileId;
+    if (!sourceId) return undefined;
+    return [...this.profiles.values()].find(profile => profile.sourceId === sourceId);
+  }
+
+  /** Remember the browser chosen on the setup page. An id that is not connected is refused. */
+  async setDefaultBrowser(sourceId) {
+    const profile = [...this.profiles.values()].find(item => item.sourceId === sourceId);
+    if (!profile) throw new Error("That browser is not connected any more; refresh the page and pick again");
+    this.preferences = { ...this.preferences, defaultBrowser: {
+      profileId: profile.sourceId, browser: profile.browser, savedAt: new Date().toISOString() } };
+    if (this.preferencesFile) {
+      const snapshot = `${JSON.stringify(this.preferences, null, 2)}\n`;
+      this.preferencesWrite = (this.preferencesWrite || Promise.resolve()).then(async () => {
+        await mkdir(this.home, { recursive: true });
+        await writeFile(this.preferencesFile, snapshot, { mode: 0o600 });
+      }).catch(() => {});
+      await this.preferencesWrite;
+    }
+    this.publishConnections?.();
+  }
+
   /**
    * Open a new tab through the paired extension and wait until the inventory publishes
    * it, so the returned reference resolves immediately. Only http(s) is accepted: a
@@ -868,13 +917,20 @@ export class BrowserBridge extends EventEmitter {
     try { parsed = new URL(target); } catch { throw new Error("browser_open needs an absolute http(s) URL"); }
     if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("browser_open only opens http(s) URLs");
     let profile;
+    let defaultUsed = false;
+    let defaultMissing = false;
     if (ref) ({ profile } = this.resolve(ref));
     else {
       const connected = [...this.profiles.values()];
       if (!connected.length) throw new Error("No browser is connected. Start the DSH browser extension in the browser you want to use.");
+      // The browser picked on the setup page wins. A configured default that is offline must not
+      // dead-end the action, so fall back to the freshest connection and report what happened.
+      const preferred = this.defaultBrowser;
+      defaultMissing = Boolean(this.preferences?.defaultBrowser?.profileId) && !preferred;
+      if (preferred) { profile = preferred; defaultUsed = true; }
       // Reconnects can leave the previous profile registered for a moment; the freshest
       // connection is the browser the user is actually working in.
-      [profile] = connected.sort((a, b) => (b.ws?.lastSeen || 0) - (a.ws?.lastSeen || 0));
+      else [profile] = connected.sort((a, b) => (b.ws?.lastSeen || 0) - (a.ws?.lastSeen || 0));
     }
     if (profile.ws?.readyState !== WebSocket.OPEN) throw new Error("Browser extension disconnected");
     const created = await this.request(profile, "dsh.openTab", [{}, { url: parsed.href, active: active === true }]);
@@ -883,7 +939,7 @@ export class BrowserBridge extends EventEmitter {
     const deadline = Date.now() + Math.max(1000, Number(timeoutMs) || 15000);
     while (Date.now() < deadline) {
       const tab = profile.tabs?.get(tabId);
-      if (tab) return { ref: tab.ref, tab };
+      if (tab) return { ref: tab.ref, tab, defaultUsed, defaultMissing };
       await new Promise(resolve => setTimeout(resolve, 50));
     }
     throw new Error("The new tab opened but the extension did not publish it in time; it may be a page the extension cannot expose");
@@ -1021,6 +1077,8 @@ export class BrowserBridge extends EventEmitter {
           connectedSeconds: Math.round((now - (socket.connectedAt || now)) / 1000),
           idleSeconds: Math.round((now - (socket.lastSeen || socket.connectedAt || now)) / 1000),
           remote: socket.remote || "",
+          sourceId: known?.sourceId || "",
+          isDefault: Boolean(known?.sourceId) && known.sourceId === this.preferences?.defaultBrowser?.profileId,
         };
       });
   }
@@ -1067,11 +1125,15 @@ export class BrowserBridge extends EventEmitter {
   connectionsSection() {
     const rows = this.describeConnections();
     if (!rows.length) return "";
+    const chooser = row => row.isDefault
+      ? '<span class="badge online">默认</span>'
+      : `<form method="post" action="/setup/default" style="margin:0"><input type="hidden" name="sourceId" value="${escapeHtml(row.sourceId || "")}"><button type="submit">设为默认</button></form>`;
     const cells = rows.map((row, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(row.browser)}${row.version ? ` ${escapeHtml(row.version)}` : ""}</td>
-      <td><code>${escapeHtml(row.profile || "?")}</code></td><td>${row.tabs}</td><td>${row.connectedSeconds}s</td><td>${row.idleSeconds}s</td><td>${escapeHtml(row.remote)}</td></tr>`).join("");
+      <td><code>${escapeHtml(row.profile || "?")}</code></td><td>${row.tabs}</td><td>${row.connectedSeconds}s</td><td>${row.idleSeconds}s</td><td>${escapeHtml(row.remote)}</td><td>${chooser(row)}</td></tr>`).join("");
     return `<section class="card"><h2>已连接的浏览器（${rows.length}）</h2>
-      <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th>#</th><th>浏览器</th><th>配置</th><th>标签</th><th>连接时长</th><th>静默</th><th>来源</th></tr></thead><tbody>${cells}</tbody></table>
-      ${rows.length > 1 ? `<p class="hint">多条记录说明装了好几份扩展，或者一个配置开了多个浏览器实例。</p>` : ""}</section>`;
+      <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th>#</th><th>浏览器</th><th>配置</th><th>标签</th><th>连接时长</th><th>静默</th><th>来源</th><th>默认</th></tr></thead><tbody>${cells}</tbody></table>
+      ${rows.length > 1 ? `<p class="hint">多个浏览器同时在线时，<code>browser_open</code> 会打开在标为「默认」的那台里；也可以给它传 <code>tab</code> 精确指定。未设置默认时按最近活跃选择。</p>` : ""}
+      ${rows.length > 1 && !rows.some(row => row.isDefault) ? `<p class="hint">建议先选一台默认浏览器，避免新建标签页落到不确定的浏览器里。</p>` : ""}</section>`;
   }
 
   /**
