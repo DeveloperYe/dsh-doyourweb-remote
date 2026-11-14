@@ -80,7 +80,7 @@ const closeArgs = z.object({ tab: z.string().optional().describe("One reference 
   all: z.boolean().optional().describe("Close every tab this conversation opened; the default when tab is omitted.") });
 const openArgs = z.object({ url: z.string().min(1).max(4096),
   tab: z.string().optional().describe("Authorized tab used only to pick which connected browser opens the page. Omit when exactly one browser is connected."),
-  active: z.boolean().optional().describe("Focus the new tab; default keeps the user's current tab in front.") });
+  active: z.boolean().optional().describe("Focus the new tab. Default false: it opens in the background and the user keeps reading the tab they had in front. Pass true only when the user asked to see the page.") });
 const webmcpListArgs = z.object({ tab, query: z.string().max(200).optional(),
   limit: z.number().int().min(400).max(8000).optional() });
 const webmcpCallArgs = z.object({ tab, catalog: z.string(), name: z.string().min(1).max(128),

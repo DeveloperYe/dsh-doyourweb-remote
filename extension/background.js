@@ -119,7 +119,18 @@ async function command(message, connection) {
       const options = args[1] || {};
       const url = String(options.url || "");
       if (!/^https?:\/\//i.test(url)) throw new Error("Only http(s) URLs can be opened");
+      // Background by default: the user keeps reading whatever they had in front. Every
+      // ordinary tool call runs in the background, and focusing a tab would yank the page
+      // away from the person mid-sentence.
       const created = await chrome.tabs.create({ url, active: options.active === true });
+      if (options.active !== true && Number.isSafeInteger(created.id)) {
+        // Some windows activate a tab created while they are regaining focus, so put the
+        // previous tab back. This is a no-op when the browser already honoured active: false.
+        const [previous] = await chrome.tabs.query({ active: true, windowId: created.windowId }).catch(() => []);
+        if (previous && previous.id !== created.id) {
+          await chrome.tabs.update(previous.id, { active: true }).catch(() => {});
+        }
+      }
       scheduleInventory();
       return { tabId: created.id, url: created.url || url };
     }

@@ -589,9 +589,14 @@ try {
   // the original reference.
   const anchor = bridge.list().find(item => item.url.startsWith(fixtureUrl));
   assert.ok(anchor, "a live fixture tab must be published before opening a new one");
+  // The tab the user is looking at must survive: browser_open works in the background.
+  const activesBefore = bridge.list().filter(item => item.active).map(item => item.id).sort();
   const opened = await bridge.openTab(anchor.ref, `${fixtureUrl}/opened-by-bridge`);
   assert.equal(opened.tab.url, `${fixtureUrl}/opened-by-bridge`);
   assert.match(opened.ref, /^dsh-browser:\/\/[a-z0-9-]+\/\d+$/);
+  assert.equal(opened.tab.active, false, "browser_open must not switch the user to the new tab");
+  assert.deepEqual(bridge.list().filter(item => item.active).map(item => item.id).sort(), activesBefore,
+    "the tab that was in front stays in front");
   const openedRead = await engine.read(opened.ref);
   assert.ok(openedRead.snapshot, "a tab opened through the extension must be readable at once");
   assert.ok(bridge.list().some(item => item.ref === opened.ref), "the new tab must appear in the @ inventory");
