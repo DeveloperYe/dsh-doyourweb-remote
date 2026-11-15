@@ -37,6 +37,22 @@ function attempt(url, protocols, { origin, host } = {}) {
 
 const lastReason = (instance, accepted) => instance.upgradeLog.filter(e => e.accepted === accepted).at(-1)?.reason;
 
+/**
+ * Read the diagnostics snapshot, waiting for it: the bridge coalesces writes 250 ms after the
+ * last event, and a saturated test run can push that past a fixed sleep.
+ */
+async function snapshot(instance, deadlineMs = 8000) {
+  const file = path.join(instance.home, "upgrades.json");
+  const giveUp = Date.now() + deadlineMs;
+  for (;;) {
+    try { return await readFile(file, "utf8"); }
+    catch (error) {
+      if (error.code !== "ENOENT" || Date.now() > giveUp) throw error;
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+  }
+}
+
 test("an accepted extension upgrade is recorded with its identity", async t => {
   const instance = await bridge(t);
   // The token is the one this install minted; the extension presents it as a subprotocol.
@@ -72,7 +88,7 @@ test("the snapshot never carries the token itself", async t => {
   await attempt(`ws://127.0.0.1:${instance.port}/extension`, ["dsh-browser", instance.settings.token], { origin: ORIGIN });
   await new Promise(resolve => setTimeout(resolve, 600));
 
-  const raw = await readFile(path.join(instance.home, "upgrades.json"), "utf8");
+  const raw = await snapshot(instance);
   assert.equal(raw.includes(instance.settings.token), false, "the secret stays out of the file");
   const parsed = JSON.parse(raw);
   const entry = parsed.entries.at(-1);

@@ -1,5 +1,20 @@
 # 更新记录
 
+## 0.9.18 · 2026-11-15
+
+修复客户端插件在**非安全上下文**（用局域网 IP + http 打开 DSH，如 `http://172.16.0.59:3080`）
+下崩溃的问题：`crypto.randomUUID is not a function`。
+
+- `crypto.randomUUID` 只在 HTTPS 或 localhost 上存在；`http://<局域网IP>` 不是安全上下文，该函数为
+  undefined。客户端入口 `src/client-entry.js` 第 41 行直接调用它，于是 `apply()` 在注册完 `@` 候选之后
+  就抛错——表现是控制台报错、插件后半段（批注投递等）静默失效，而 `@` 选标签仍然正常。
+- 新增 `src/client-id.js` 的 `newId()`：有 `randomUUID` 就用，没有就用 `crypto.getRandomValues`
+  手工拼 v4（`getRandomValues` 在非安全上下文同样可用）。扩展里的 annotator 早就这么做了，客户端漏了。
+- 测试 4 条：有/无 `randomUUID` 都返回合法 v4、无 `randomUUID` 时连续 50 次不抛错、**构建产物里
+  任何 `crypto.randomUUID(` 调用都必须带 `typeof` 守卫**（防止这个坑再次溜进来）。
+
+这一版只改客户端产物，刷新 DSH 页面即可；宿主与服务端代码未变。
+
 ## 0.9.17 · 2026-11-15
 
 `browser_open` 一律在**后台**开标签，不再把人从正在看的页面拽走。
